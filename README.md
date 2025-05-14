@@ -1,10 +1,47 @@
-# Getting Started with Create React App
+# Trailer Park Anime
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A modern React application that showcases anime trailers and information powered by the MyAnimeList API.
 
-## Available Scripts
+![Trailer Park Anime](public/images/trailer-park-logo.svg)
+
+## Features
+
+- Browse trending and new anime releases
+- Filter anime by genre categories
+- View detailed information about each anime
+- Responsive design for mobile and desktop
+- Modern UI with sleek animations and hover effects
+- Custom branding with unique color scheme
+
+## Tech Stack
+
+- React 19
+- TypeScript
+- Tailwind CSS
+- React Router DOM
+- MyAnimeList API
+
+## API Configuration
+
+### Setting up MyAnimeList API Access
+
+1. Register for a MyAnimeList account at [MyAnimeList.net](https://myanimelist.net)
+2. Visit the [API page](https://myanimelist.net/apiconfig) to register your application
+3. Create a new client ID by filling out the form
+4. Once approved, you'll receive a Client ID
+5. Update the `MAL_CLIENT_ID` constant in `src/services/api.ts` with your Client ID
+
+```javascript
+const MAL_CLIENT_ID = 'YOUR_MAL_CLIENT_ID'; // Replace with your client ID from MyAnimeList
+```
+
+## Getting Started
 
 In the project directory, you can run:
+
+### `npm install`
+
+Installs all the required dependencies for the project.
 
 ### `npm start`
 
@@ -27,20 +64,19 @@ It correctly bundles React in production mode and optimizes the build for the be
 The build is minified and the filenames include the hashes.\
 Your app is ready to be deployed!
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## Project Structure
 
-### `npm run eject`
+- `public/` - Static assets including images and favicon
+- `src/` - Application source code
+  - `assets/` - SVG and other asset files
+  - `services/` - API service for MyAnimeList integration
+  - `App.tsx` - Main application component
+  - `App.css` - Custom styling
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+## Credits
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+This project uses the [MyAnimeList API](https://myanimelist.net/apiconfig) to fetch anime data.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+## License
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
+This project is licensed under the MIT License - see the LICENSE file for details.
