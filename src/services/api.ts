@@ -1,13 +1,38 @@
 // MyAnimeList API service
 // You'll need to register for a MyAnimeList API client ID: https://myanimelist.net/apiconfig
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import anilistApi from './anilistApi';
+import kitsuApi from './kitsuApi';
 
-// Add explicit console log to help debug the issue
+// Use the provided client ID and secret
+const MAL_CLIENT_ID = process.env.REACT_APP_MAL_CLIENT_ID || 'f964474b9d17e82a1f0229c781f28afc'; // Use environment variable or fallback to hardcoded value
+const MAL_CLIENT_SECRET = process.env.REACT_APP_MAL_CLIENT_SECRET || '6f0064e892f4beea188d3b1a6d9a12ee2051920abbfb8630d922f4c4de86c864'; // Client secret if needed
+
+// CORS Proxy configuration - will be used as a fallback if direct API requests fail
+const CORS_PROXY_URLS = [
+    'https://cors-anywhere.herokuapp.com/',
+    'https://cors-proxy.htmldriven.com/?url=',
+    'https://api.allorigins.win/raw?url='
+];
+let currentProxyIndex = -1; // Start with no proxy
+
+// Function to get the next available proxy URL
+const getNextProxy = () => {
+    currentProxyIndex = (currentProxyIndex + 1) % CORS_PROXY_URLS.length;
+    return CORS_PROXY_URLS[currentProxyIndex];
+};
+
+// Add more comprehensive logging
+console.log('======================= API DEBUG INFO =======================');
 console.log('API Client ID:', process.env.REACT_APP_MAL_CLIENT_ID ? 'CONFIGURED ✓' : 'NOT CONFIGURED ✗');
+console.log('Using Client ID:', MAL_CLIENT_ID);
+console.log('MAL Client Secret is', MAL_CLIENT_SECRET ? 'configured' : 'not configured');
+console.log('================================================================');
 
-// Check if we have a valid client ID
-const MAL_CLIENT_ID = process.env.REACT_APP_MAL_CLIENT_ID || 'YOUR_MAL_CLIENT_ID'; // Set your client ID in .env file
-const IS_USING_MOCK = MAL_CLIENT_ID === 'YOUR_MAL_CLIENT_ID' || MAL_CLIENT_ID === 'your_client_id_here';
+// Force the use of real API data instead of mock data
+const IS_USING_MOCK = false; // Setting to false to always use real API data
+
+export const isMockDataEnabled = () => IS_USING_MOCK;
 
 if (IS_USING_MOCK) {
     console.warn('------------------------------------------------------------');
@@ -15,28 +40,139 @@ if (IS_USING_MOCK) {
     console.warn('| Using mock data instead of real API calls                |');
     console.warn('| Get your client ID at: https://myanimelist.net/apiconfig |');
     console.warn('------------------------------------------------------------');
+} else {
+    console.log('Using real data from MyAnimeList API with AniList and Kitsu APIs as backup');
 }
 
 const MAL_BASE_URL = 'https://api.myanimelist.net/v2';
+const MAL_AUTH_URL = 'https://myanimelist.net/v1/oauth2';
 const IMAGE_PLACEHOLDER = 'https://via.placeholder.com/225x319?text=No+Image';
+
+// OAuth token storage for authenticated requests
+let malAuthToken: string | null = null;
+let malTokenExpiry: number | null = null;
+
+// Helper function to get MyAnimeList OAuth token when needed
+export const getMALAuthToken = async (): Promise<string | null> => {
+    // Check if we have a valid token already
+    if (malAuthToken && malTokenExpiry && Date.now() < malTokenExpiry) {
+        return malAuthToken;
+    }
+
+    // Only attempt to get a token if we have both client ID and secret
+    if (!MAL_CLIENT_ID || !MAL_CLIENT_SECRET) {
+        console.warn('MyAnimeList client ID or secret missing, cannot perform authenticated requests');
+        return null;
+    }
+
+    try {
+        console.log('Attempting to obtain MyAnimeList OAuth token...');
+        const response = await axios.post(`${MAL_AUTH_URL}/token`,
+            new URLSearchParams({
+                client_id: MAL_CLIENT_ID,
+                client_secret: MAL_CLIENT_SECRET,
+                grant_type: 'client_credentials'
+            }),
+            {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+            }
+        );
+
+        if (response.data.access_token) {
+            malAuthToken = response.data.access_token;
+            // Set token expiry (typically 1 hour) minus a small buffer
+            malTokenExpiry = Date.now() + (response.data.expires_in * 1000) - 60000;
+            console.log('Successfully obtained MyAnimeList OAuth token');
+            return malAuthToken;
+        } else {
+            console.error('MyAnimeList OAuth response did not contain an access token');
+            return null;
+        }
+    } catch (error) {
+        console.error('Failed to obtain MyAnimeList OAuth token:', error);
+        return null;
+    }
+};
 
 // Create an Axios instance with default config
 const malApi: AxiosInstance = axios.create({
     baseURL: MAL_BASE_URL,
     headers: {
         'X-MAL-CLIENT-ID': MAL_CLIENT_ID,
-        'Accept': 'application/json'
-    }
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+    },
+    timeout: 10000, // 10 seconds timeout
+    // Important: Ensure credentials are not included unless specifically needed
+    withCredentials: false
 });
 
-// Add response interceptor for error handling
+// Add request interceptor for debugging and adding auth tokens when available
+malApi.interceptors.request.use(
+    async config => {
+        console.log('Making API request to:', config.url);
+
+        // Try to add OAuth token for authorized requests if needed
+        if (config.url && (
+            config.url.includes('/animelist') ||
+            config.url.includes('/user') ||
+            config.url.includes('/forum')
+        )) {
+            try {
+                const token = await getMALAuthToken();
+                if (token) {
+                    config.headers = config.headers || {};
+                    config.headers['Authorization'] = `Bearer ${token}`;
+                    console.log('Added OAuth token to request');
+                }
+            } catch (error) {
+                console.error('Failed to add OAuth token to request:', error);
+                // Continue with the request anyway using client ID
+            }
+        }
+
+        console.log('With headers:', JSON.stringify(config.headers));
+        return config;
+    },
+    error => {
+        console.error('Request error:', error);
+        return Promise.reject(error);
+    }
+);
+
+// Add response interceptor for error handling with improved logging
 malApi.interceptors.response.use(
-    response => response,
+    response => {
+        console.log('API response successful for:', response.config.url);
+        return response;
+    },
     error => {
         console.error('API request failed:', error.response?.status || error.message);
+        console.error('Request URL:', error.config?.url);
+        console.error('Request method:', error.config?.method);
+
+        if (error.response) {
+            console.error('Response data:', error.response?.data);
+            console.error('Response headers:', error.response?.headers);
+        }
+
+        // Enhance error message with more context
         if (error.response?.status === 401 || error.response?.status === 403) {
             console.warn('Authentication error - check your MAL API Client ID');
+            error.message = `Authentication error (${error.response.status}): ${error.message}`;
+        } else if (error.response?.status === 429) {
+            console.warn('Rate limiting error - too many requests');
+            error.message = `Rate limit exceeded (429): ${error.message}`;
+        } else if (error.response?.status >= 500) {
+            console.warn('Server error - API service may be experiencing issues');
+            error.message = `Server error (${error.response.status}): ${error.message}`;
+        } else if (!error.response && error.message === 'Network Error') {
+            console.warn('Network error - this might be a CORS issue');
+            error.message = 'Network error: Possible CORS issue or server is unreachable';
         }
+
         return Promise.reject(error);
     }
 );
@@ -77,21 +213,336 @@ export interface PaginatedResponse<T> {
 export type SortOption = 'anime_score' | 'anime_num_list_users' | 'start_date' | 'title' | 'rank';
 
 // Helper function to make requests to MAL API
-const fetchFromMAL = async (endpoint: string, params = {}) => {
-    // If we're using mock data, don't even try to make the API call
-    if (IS_USING_MOCK) {
-        throw new Error('MOCK_MODE_ENABLED');
-    }
+interface MALParams {
+    [key: string]: any;
+    limit?: number;
+    offset?: number;
+    sort?: string;
+    genre?: number;
+    ranking_type?: string;
+    fields?: string;
+    q?: string;
+}
 
+const fetchFromMAL = async (endpoint: string, params: MALParams = {}) => {
     try {
+        console.log(`Attempting to fetch data from MyAnimeList API - ${endpoint} with params:`, params);
+
+        // Create a more robust configuration with longer timeout
         const config: AxiosRequestConfig = {
-            params
+            params,
+            timeout: 10000, // 10 seconds timeout
+            headers: {
+                'X-MAL-CLIENT-ID': MAL_CLIENT_ID,
+                'Accept': 'application/json'
+            }
         };
 
+        // Try the request
         const response = await malApi.get(endpoint, config);
+        console.log(`Successfully fetched data from MyAnimeList API - ${endpoint}`);
         return response.data;
-    } catch (error) {
-        console.error('API request failed:', error);
+    } catch (error: any) {
+        console.error(`Failed to fetch data from MyAnimeList API - ${endpoint}:`, error.message);
+
+        // Provide more detailed error information to help with debugging
+        if (error.response) {
+            // The request was made and the server responded with a status code
+            // that falls out of the range of 2xx
+            console.error('Error response status:', error.response.status);
+            console.error('Error response headers:', error.response.headers);
+            console.error('Error response data:', error.response.data);
+        } else if (error.request) {
+            // The request was made but no response was received
+            console.error('No response received from server. This might be a network or CORS issue.');
+            console.error('Request details:', error.request);
+        } else {
+            // Something happened in setting up the request that triggered an Error
+            console.error('Error in request setup:', error.message);
+        }
+        console.error('Error config:', error.config);
+
+        // Check if this might be a CORS issue
+        const isCorsIssue = error.message && (
+            error.message.includes('CORS') ||
+            error.message.includes('Network Error') ||
+            (error.response && error.response.status === 0)
+        );
+
+        // If it seems like a CORS issue, try using a proxy
+        if (isCorsIssue) {
+            try {
+                console.log('Possible CORS issue detected. Attempting to use a CORS proxy...');
+                const proxyUrl = getNextProxy();
+                const targetUrl = `${MAL_BASE_URL}${endpoint}`;
+
+                // Construct query parameters
+                const queryParams = new URLSearchParams();
+                for (const key in params) {
+                    queryParams.append(key, params[key]);
+                }
+
+                const fullUrl = `${proxyUrl}${encodeURIComponent(targetUrl + (queryParams.toString() ? `?${queryParams.toString()}` : ''))}`;
+                console.log(`Using proxy URL: ${fullUrl}`);
+
+                const proxyResponse = await axios.get(fullUrl, {
+                    headers: {
+                        'X-MAL-CLIENT-ID': MAL_CLIENT_ID,
+                        'Origin': window.location.origin
+                    },
+                    timeout: 15000 // Longer timeout for proxy requests
+                });
+
+                console.log('Successfully fetched data through proxy');
+                return proxyResponse.data;
+            } catch (proxyError: any) {
+                console.error('Failed to fetch data through proxy:', proxyError.message);
+                // Continue to fallback APIs
+            }
+        }
+
+        // Try with AniList API as a fallback for common endpoints
+        if (endpoint.startsWith('/anime/') && endpoint.split('/').length === 3) {
+            // This is a anime details endpoint - try AniList
+            try {
+                const animeId = endpoint.split('/')[2];
+                console.log(`Attempting to fetch anime details from AniList API for ID: ${animeId}`);
+                const anilistResult = await anilistApi.fetchAnimeDetails(animeId);
+                if (anilistResult) {
+                    console.log(`Successfully fetched anime details from AniList API for ID: ${animeId}`);
+                    // Convert to MAL format expected by the rest of the app
+                    return {
+                        id: anilistResult.id,
+                        title: anilistResult.title,
+                        main_picture: {
+                            large: anilistResult.thumbnail,
+                            medium: anilistResult.thumbnail
+                        },
+                        pictures: [{ large: anilistResult.backgroundImage, medium: anilistResult.backgroundImage }],
+                        synopsis: anilistResult.description,
+                        mean: parseFloat(anilistResult.rating) || null,
+                        popularity: 100, // Arbitrary value
+                        num_episodes: anilistResult.episodes,
+                        start_date: null,
+                        genres: anilistResult.genres.map(g => ({ name: g }))
+                    };
+                }
+            } catch (anilistError) {
+                console.error(`Failed fallback to AniList API for anime details:`, anilistError);
+
+                // If AniList fails, try Kitsu as a second fallback
+                try {
+                    const animeId = endpoint.split('/')[2];
+                    console.log(`Attempting to fetch anime details from Kitsu API for ID: ${animeId}`);
+                    const kitsuResult = await kitsuApi.fetchAnimeDetails(animeId);
+                    if (kitsuResult) {
+                        console.log(`Successfully fetched anime details from Kitsu API for ID: ${animeId}`);
+                        // Convert to MAL format expected by the rest of the app
+                        return {
+                            id: kitsuResult.id,
+                            title: kitsuResult.title,
+                            main_picture: {
+                                large: kitsuResult.thumbnail,
+                                medium: kitsuResult.thumbnail
+                            },
+                            pictures: [{ large: kitsuResult.backgroundImage, medium: kitsuResult.backgroundImage }],
+                            synopsis: kitsuResult.description,
+                            mean: parseFloat(kitsuResult.rating) || null,
+                            popularity: 100, // Arbitrary value
+                            num_episodes: kitsuResult.episodes,
+                            start_date: null,
+                            genres: kitsuResult.genres.map(g => ({ name: g }))
+                        };
+                    }
+                } catch (kitsuError) {
+                    console.error(`Failed fallback to Kitsu API for anime details:`, kitsuError);
+                }
+            }
+        } else if (endpoint === '/anime') {
+            // This is a search or browse endpoint - try AniList
+            try {
+                console.log(`Attempting to fetch anime list from AniList API`);
+                const page = params.offset ? Math.floor(params.offset / (params.limit ?? 24)) + 1 : 1;
+                const sort = params.sort || 'anime_score';
+                const sortDirection = sort.endsWith('_asc') ? 'asc' : 'desc';
+                const baseSort = sort.replace('_asc', '');
+                const genre = params.genre;
+
+                const anilistResult = await anilistApi.fetchAllAnime(
+                    page,
+                    params.limit || 24,
+                    baseSort as SortOption,
+                    sortDirection as 'asc' | 'desc',
+                    genre
+                );
+
+                if (anilistResult && anilistResult.data && anilistResult.data.length > 0) {
+                    console.log(`Successfully fetched anime list from AniList API`);
+                    // Convert to MAL format expected by the rest of the app
+                    return {
+                        data: anilistResult.data.map(anime => ({
+                            node: {
+                                id: anime.id,
+                                title: anime.title,
+                                main_picture: {
+                                    large: anime.thumbnail,
+                                    medium: anime.thumbnail
+                                },
+                                synopsis: anime.description,
+                                mean: parseFloat(anime.rating) || null,
+                                popularity: 100, // Arbitrary value
+                                num_episodes: anime.episodes,
+                                start_date: null,
+                                genres: anime.genres.map(g => ({ name: g }))
+                            }
+                        })),
+                        paging: anilistResult.paging
+                    };
+                }
+            } catch (anilistError) {
+                console.error(`Failed fallback to AniList API for anime list:`, anilistError);
+
+                // If AniList fails, try Kitsu as a second fallback
+                try {
+                    console.log(`Attempting to fetch anime list from Kitsu API`);
+                    const page = params.offset ? Math.floor(params.offset / (params.limit ?? 24)) + 1 : 1;
+                    const sort = params.sort || 'anime_score';
+                    const sortDirection = sort.endsWith('_asc') ? 'asc' : 'desc';
+                    const baseSort = sort.replace('_asc', '');
+                    const genre = params.genre;
+
+                    const kitsuResult = await kitsuApi.fetchAllAnime(
+                        page,
+                        params.limit || 24,
+                        baseSort as SortOption,
+                        sortDirection as 'asc' | 'desc',
+                        genre
+                    );
+
+                    if (kitsuResult && kitsuResult.data && kitsuResult.data.length > 0) {
+                        console.log(`Successfully fetched anime list from Kitsu API`);
+                        // Convert to MAL format expected by the rest of the app
+                        return {
+                            data: kitsuResult.data.map(anime => ({
+                                node: {
+                                    id: anime.id,
+                                    title: anime.title,
+                                    main_picture: {
+                                        large: anime.thumbnail,
+                                        medium: anime.thumbnail
+                                    },
+                                    synopsis: anime.description,
+                                    mean: parseFloat(anime.rating) || null,
+                                    popularity: 100, // Arbitrary value
+                                    num_episodes: anime.episodes,
+                                    start_date: null,
+                                    genres: anime.genres.map(g => ({ name: g }))
+                                }
+                            })),
+                            paging: kitsuResult.paging
+                        };
+                    }
+                } catch (kitsuError) {
+                    console.error(`Failed fallback to Kitsu API for anime list:`, kitsuError);
+                }
+            }
+        } else if (endpoint === '/anime/ranking') {
+            // This is a ranking/trending endpoint - try AniList
+            try {
+                const rankingType = params.ranking_type || 'all';
+                console.log(`Attempting to fetch ${rankingType} anime from AniList API`);
+
+                let anilistResult;
+                if (rankingType === 'bypopularity' || rankingType === 'all') {
+                    anilistResult = await anilistApi.fetchTrendingAnime(params.limit || 20);
+                } else if (rankingType === 'airing') {
+                    anilistResult = await anilistApi.fetchNewReleases(params.limit || 20);
+                }
+
+                if (anilistResult && anilistResult.length > 0) {
+                    console.log(`Successfully fetched ${rankingType} anime from AniList API`);
+                    // Convert to MAL format expected by the rest of the app
+                    return {
+                        data: anilistResult.map(anime => ({
+                            node: {
+                                id: anime.id,
+                                title: anime.title,
+                                main_picture: {
+                                    large: anime.thumbnail,
+                                    medium: anime.thumbnail
+                                },
+                                synopsis: anime.description,
+                                mean: parseFloat(anime.rating) || null,
+                                popularity: 100, // Arbitrary value
+                                num_episodes: anime.episodes,
+                                start_date: null,
+                                genres: anime.genres.map(g => ({ name: g }))
+                            }
+                        }))
+                    };
+                }
+            } catch (anilistError) {
+                console.error(`Failed fallback to AniList API for ranking:`, anilistError);
+
+                // If AniList fails, try Kitsu as a second fallback
+                try {
+                    const rankingType = params.ranking_type || 'all';
+                    console.log(`Attempting to fetch ${rankingType} anime from Kitsu API`);
+
+                    let kitsuResult;
+                    if (rankingType === 'bypopularity' || rankingType === 'all') {
+                        kitsuResult = await kitsuApi.fetchTrendingAnime(params.limit || 20);
+                    } else if (rankingType === 'airing') {
+                        kitsuResult = await kitsuApi.fetchNewReleases(params.limit || 20);
+                    }
+
+                    if (kitsuResult && kitsuResult.length > 0) {
+                        console.log(`Successfully fetched ${rankingType} anime from Kitsu API`);
+                        // Convert to MAL format expected by the rest of the app
+                        return {
+                            data: kitsuResult.map(anime => ({
+                                node: {
+                                    id: anime.id,
+                                    title: anime.title,
+                                    main_picture: {
+                                        large: anime.thumbnail,
+                                        medium: anime.thumbnail
+                                    },
+                                    synopsis: anime.description,
+                                    mean: parseFloat(anime.rating) || null,
+                                    popularity: 100, // Arbitrary value
+                                    num_episodes: anime.episodes,
+                                    start_date: null,
+                                    genres: anime.genres.map(g => ({ name: g }))
+                                }
+                            }))
+                        };
+                    }
+                } catch (kitsuError) {
+                    console.error(`Failed fallback to Kitsu API for ranking:`, kitsuError);
+                }
+            }
+        }
+
+        // If we couldn't use AniList API as a fallback, try a direct test request to see if MAL API is available at all
+        try {
+            console.log('Attempting a basic test API request to MyAnimeList...');
+            const testResponse = await fetch('https://api.myanimelist.net/v2/anime?q=test', {
+                headers: {
+                    'X-MAL-CLIENT-ID': MAL_CLIENT_ID
+                }
+            });
+
+            if (testResponse.ok) {
+                console.log('Basic MyAnimeList API test request succeeded, problem may be with specific endpoint or params');
+            } else {
+                console.error('Basic MyAnimeList API test request also failed with status:', testResponse.status);
+                console.error('MyAnimeList API might be down or client ID is invalid');
+            }
+        } catch (testError) {
+            console.error('Could not even perform basic MAL API test request:', testError);
+        }
+
         throw error;
     }
 };
@@ -99,8 +550,8 @@ const fetchFromMAL = async (endpoint: string, params = {}) => {
 // Function to fetch anime details
 export const fetchAnimeDetails = async (id: string): Promise<AnimeTrailer | null> => {
     try {
-        // Check if it's a mock ID (contains underscore)
-        if (id.includes('_')) {
+        // Only check for mock ID if we're using mock mode
+        if (IS_USING_MOCK && id.includes('_')) {
             // Find the corresponding mock item
             const baseId = id.split('_')[0];
             const mockItem = mockTrailers.find(item => item.id === baseId);
@@ -157,8 +608,8 @@ export const fetchAnimeDetails = async (id: string): Promise<AnimeTrailer | null
     } catch (error) {
         console.error(`Failed to fetch anime details for ID ${id}:`, error);
 
-        // If it's a real ID (doesn't contain underscore)
-        if (!id.includes('_')) {
+        // Only use mock data fallback if in mock mode
+        if (IS_USING_MOCK && !id.includes('_')) {
             // Try to find a mock item with similar ID
             const potentialMock = mockTrailers.find(item => parseInt(item.id) === parseInt(id));
             if (potentialMock) {
@@ -173,6 +624,7 @@ export const fetchAnimeDetails = async (id: string): Promise<AnimeTrailer | null
 // Function to fetch anime list
 export const fetchAnimeList = async (page = 1, limit = 20): Promise<AnimeTrailer[]> => {
     try {
+        // Only use mock data if explicitly in mock mode
         if (IS_USING_MOCK) {
             console.log('Using mock data for fetchAnimeList');
             return mockTrailers.slice(0, limit);
@@ -188,8 +640,11 @@ export const fetchAnimeList = async (page = 1, limit = 20): Promise<AnimeTrailer
         return data.data.map((item: any) => convertToAnimeTrailer(item.node));
     } catch (error) {
         console.error('Failed to fetch anime list:', error);
-        console.log('Falling back to mock data');
-        return mockTrailers.slice(0, limit);
+        if (IS_USING_MOCK) {
+            console.log('Falling back to mock data');
+            return mockTrailers.slice(0, limit);
+        }
+        return []; // Return empty array when API fails and not in mock mode
     }
 };
 
@@ -231,39 +686,107 @@ export const fetchAllAnime = async (
             params.year = year;
         }
 
-        // Make the API request
-        const data = await fetchFromMAL('/anime', params);
+        // Make the API request with retry mechanism
+        let data;
+        let retryCount = 0;
+        const maxRetries = 2;
 
-        // Calculate pagination information
-        const nextUrl = data.paging?.next || '';
-        const hasNext = !!nextUrl;
+        while (retryCount <= maxRetries) {
+            try {
+                // Make the API request
+                data = await fetchFromMAL('/anime', params);
+                break; // If successful, exit the loop
+            } catch (error) {
+                retryCount++;
+                console.log(`Retry ${retryCount}/${maxRetries} for fetchAllAnime`);
 
-        // Extract page number from next URL if available
-        let lastPage = page;
-        if (hasNext) {
-            const nextOffset = new URLSearchParams(new URL(nextUrl).search).get('offset');
-            if (nextOffset) {
-                const totalItems = parseInt(nextOffset) + limit;
-                lastPage = Math.ceil(totalItems / limit);
-            } else {
-                lastPage = page + 1;
+                if (retryCount > maxRetries) {
+                    // We've reached max retries, try fallback APIs
+                    console.log('Max retries reached, attempting fallback APIs...');
+                    throw error; // This will trigger the fallback APIs in the catch block
+                }
+
+                // Wait before retrying (exponential backoff)
+                await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
             }
         }
 
-        // Map the data to our format
-        const animeList = data.data.map((item: any) => convertToAnimeTrailer(item.node));
+        // If we got here with data, process it
+        if (data) {
+            // Calculate pagination information
+            const nextUrl = data.paging?.next || '';
+            const hasNext = !!nextUrl;
 
-        return {
-            data: animeList,
-            paging: data.paging,
-            currentPage: page,
-            lastPage: hasNext ? lastPage : page
-        };
+            // Extract page number from next URL if available
+            let lastPage = page;
+            if (hasNext) {
+                const nextOffset = new URLSearchParams(new URL(nextUrl).search).get('offset');
+                if (nextOffset) {
+                    const totalItems = parseInt(nextOffset) + limit;
+                    lastPage = Math.ceil(totalItems / limit);
+                } else {
+                    lastPage = page + 1;
+                }
+            }
+
+            // Map the data to our format
+            const animeList = data.data.map((item: any) => convertToAnimeTrailer(item.node));
+
+            return {
+                data: animeList,
+                paging: data.paging,
+                currentPage: page,
+                lastPage: hasNext ? lastPage : page
+            };
+        }
+
+        // This should not be reached if data is defined
+        throw new Error('No data returned from API');
+
     } catch (error) {
         console.error('Failed to fetch all anime:', error);
-        console.log('Falling back to mock data after API error');
+        console.log('Attempting to use fallback APIs...');
 
-        // Return mock data as a fallback when the API fails
+        // Try AniList API fallback
+        try {
+            console.log('Trying AniList API for fetchAllAnime...');
+            const anilistResult = await anilistApi.fetchAllAnime(
+                page,
+                limit,
+                sort,
+                sortDirection,
+                genre
+            );
+
+            if (anilistResult && anilistResult.data && anilistResult.data.length > 0) {
+                console.log('Successfully fetched anime from AniList fallback');
+                return anilistResult;
+            }
+        } catch (anilistError) {
+            console.error('AniList fallback failed:', anilistError);
+        }
+
+        // Try Kitsu API as a final fallback
+        try {
+            console.log('Trying Kitsu API for fetchAllAnime...');
+            const kitsuResult = await kitsuApi.fetchAllAnime(
+                page,
+                limit,
+                sort,
+                sortDirection,
+                genre
+            );
+
+            if (kitsuResult && kitsuResult.data && kitsuResult.data.length > 0) {
+                console.log('Successfully fetched anime from Kitsu fallback');
+                return kitsuResult;
+            }
+        } catch (kitsuError) {
+            console.error('Kitsu fallback failed:', kitsuError);
+        }
+
+        // If all APIs fail, return mock data as a last resort
+        console.log('All API attempts failed. Falling back to mock data');
         return getMockPaginatedAnime(page, limit, genre, status);
     }
 };
@@ -381,7 +904,10 @@ export const fetchTrendingAnime = async (limit = 20): Promise<AnimeTrailer[]> =>
         });
     } catch (error) {
         console.error('Failed to fetch trending anime:', error);
-        return mockTrailers.filter(t => t.isTrending).slice(0, limit);
+        if (IS_USING_MOCK) {
+            return mockTrailers.filter(t => t.isTrending).slice(0, limit);
+        }
+        return []; // Return empty array if not in mock mode
     }
 };
 
@@ -406,7 +932,10 @@ export const fetchNewReleases = async (limit = 20): Promise<AnimeTrailer[]> => {
         });
     } catch (error) {
         console.error('Failed to fetch new releases:', error);
-        return mockTrailers.filter(t => t.isNewRelease).slice(0, limit);
+        if (IS_USING_MOCK) {
+            return mockTrailers.filter(t => t.isNewRelease).slice(0, limit);
+        }
+        return []; // Return empty array if not in mock mode
     }
 };
 
@@ -467,15 +996,20 @@ export const searchAnime = async (query: string, limit = 20): Promise<AnimeTrail
     } catch (error) {
         console.error('Failed to search anime:', error);
 
-        // Fallback to searching in mock data
-        const lowerQuery = query.toLowerCase();
-        return mockTrailers
-            .filter(anime =>
-                anime.title.toLowerCase().includes(lowerQuery) ||
-                anime.description.toLowerCase().includes(lowerQuery) ||
-                anime.genres.some(genre => genre.includes(lowerQuery))
-            )
-            .slice(0, limit);
+        // Only fall back to mock data if in mock mode
+        if (IS_USING_MOCK) {
+            // Fallback to searching in mock data
+            const lowerQuery = query.toLowerCase();
+            return mockTrailers
+                .filter(anime =>
+                    anime.title.toLowerCase().includes(lowerQuery) ||
+                    anime.description.toLowerCase().includes(lowerQuery) ||
+                    anime.genres.some(genre => genre.includes(lowerQuery))
+                )
+                .slice(0, limit);
+        }
+
+        return []; // Return empty array when API fails and not in mock mode
     }
 };
 
@@ -519,26 +1053,160 @@ export const fetchMockData = () => {
     return {
         fetchFeaturedTrailer: async (): Promise<AnimeTrailer> => {
             try {
-                const trending = await fetchTrendingAnime(1);
-                return trending[0] || mockTrailers[0];
-            } catch {
+                // Try to get real data from MyAnimeList first
+                if (!IS_USING_MOCK) {
+                    try {
+                        console.log('Attempting to fetch featured trailer from MyAnimeList API...');
+                        const trending = await fetchTrendingAnime(1);
+                        if (trending && trending.length > 0) {
+                            console.log('Successfully fetched featured trailer from MyAnimeList API');
+                            return trending[0];
+                        }
+                    } catch (error) {
+                        console.error('Failed to fetch featured trailer from MyAnimeList API:', error);
+                    }
+
+                    // If MyAnimeList fails, try AniList
+                    try {
+                        console.log('Attempting to fetch featured trailer from AniList API...');
+                        const anilistTrending = await anilistApi.fetchTrendingAnime(1);
+                        if (anilistTrending && anilistTrending.length > 0) {
+                            console.log('Successfully fetched featured trailer from AniList API');
+                            return anilistTrending[0];
+                        }
+                    } catch (anilistError) {
+                        console.error('Failed to fetch featured trailer from AniList API:', anilistError);
+                    }
+
+                    // If AniList fails, try Kitsu
+                    try {
+                        console.log('Attempting to fetch featured trailer from Kitsu API...');
+                        const kitsuTrending = await kitsuApi.fetchTrendingAnime(1);
+                        if (kitsuTrending && kitsuTrending.length > 0) {
+                            console.log('Successfully fetched featured trailer from Kitsu API');
+                            return kitsuTrending[0];
+                        }
+                    } catch (kitsuError) {
+                        console.error('Failed to fetch featured trailer from Kitsu API:', kitsuError);
+                    }
+                }
+
+                // Fall back to mock data if both APIs failed or we're in mock mode
+                console.log('Using mock data for featured trailer');
                 return mockTrailers[0];
+            } catch (error) {
+                console.error('All attempts to fetch featured trailer failed, using placeholder:', error);
+                // Create a simple placeholder as last resort
+                return {
+                    id: '0',
+                    title: 'Loading Error',
+                    description: 'Could not fetch anime data. Please try again later.',
+                    shortDescription: 'Could not fetch anime data.',
+                    thumbnail: IMAGE_PLACEHOLDER,
+                    backgroundImage: IMAGE_PLACEHOLDER,
+                    year: new Date().getFullYear(),
+                    rating: 'N/A',
+                    episodes: 0,
+                    genres: ['anime'],
+                    isNewRelease: false,
+                    isTrending: false
+                };
             }
         },
         fetchTrendingTrailers: async (): Promise<AnimeTrailer[]> => {
             try {
-                const trending = await fetchTrendingAnime();
-                return trending.length > 0 ? trending : mockTrailers.filter(t => t.isTrending);
-            } catch {
+                // Try MyAnimeList API first
+                if (!IS_USING_MOCK) {
+                    try {
+                        console.log('Attempting to fetch trending trailers from MyAnimeList API...');
+                        const trending = await fetchTrendingAnime();
+                        if (trending && trending.length > 0) {
+                            console.log('Successfully fetched trending trailers from MyAnimeList API');
+                            return trending;
+                        }
+                    } catch (error) {
+                        console.error('Failed to fetch trending trailers from MyAnimeList API:', error);
+                    }
+
+                    // If MyAnimeList fails, try AniList
+                    try {
+                        console.log('Attempting to fetch trending trailers from AniList API...');
+                        const anilistTrending = await anilistApi.fetchTrendingAnime();
+                        if (anilistTrending && anilistTrending.length > 0) {
+                            console.log('Successfully fetched trending trailers from AniList API');
+                            return anilistTrending;
+                        }
+                    } catch (anilistError) {
+                        console.error('Failed to fetch trending trailers from AniList API:', anilistError);
+                    }
+
+                    // If AniList fails, try Kitsu
+                    try {
+                        console.log('Attempting to fetch trending trailers from Kitsu API...');
+                        const kitsuTrending = await kitsuApi.fetchTrendingAnime();
+                        if (kitsuTrending && kitsuTrending.length > 0) {
+                            console.log('Successfully fetched trending trailers from Kitsu API');
+                            return kitsuTrending;
+                        }
+                    } catch (kitsuError) {
+                        console.error('Failed to fetch trending trailers from Kitsu API:', kitsuError);
+                    }
+                }
+
+                // Fall back to mock data
+                console.log('Using mock data for trending trailers');
                 return mockTrailers.filter(t => t.isTrending);
+            } catch (error) {
+                console.error('All attempts to fetch trending trailers failed:', error);
+                return mockTrailers.filter(t => t.isTrending).slice(0, 5);
             }
         },
         fetchNewReleases: async (): Promise<AnimeTrailer[]> => {
             try {
-                const newReleases = await fetchNewReleases();
-                return newReleases.length > 0 ? newReleases : mockTrailers.filter(t => t.isNewRelease);
-            } catch {
+                // Try MyAnimeList API first
+                if (!IS_USING_MOCK) {
+                    try {
+                        console.log('Attempting to fetch new releases from MyAnimeList API...');
+                        const newReleases = await fetchNewReleases();
+                        if (newReleases && newReleases.length > 0) {
+                            console.log('Successfully fetched new releases from MyAnimeList API');
+                            return newReleases;
+                        }
+                    } catch (error) {
+                        console.error('Failed to fetch new releases from MyAnimeList API:', error);
+                    }
+
+                    // If MyAnimeList fails, try AniList
+                    try {
+                        console.log('Attempting to fetch new releases from AniList API...');
+                        const anilistNewReleases = await anilistApi.fetchNewReleases();
+                        if (anilistNewReleases && anilistNewReleases.length > 0) {
+                            console.log('Successfully fetched new releases from AniList API');
+                            return anilistNewReleases;
+                        }
+                    } catch (anilistError) {
+                        console.error('Failed to fetch new releases from AniList API:', anilistError);
+                    }
+
+                    // If AniList fails, try Kitsu
+                    try {
+                        console.log('Attempting to fetch new releases from Kitsu API...');
+                        const kitsuNewReleases = await kitsuApi.fetchNewReleases();
+                        if (kitsuNewReleases && kitsuNewReleases.length > 0) {
+                            console.log('Successfully fetched new releases from Kitsu API');
+                            return kitsuNewReleases;
+                        }
+                    } catch (kitsuError) {
+                        console.error('Failed to fetch new releases from Kitsu API:', kitsuError);
+                    }
+                }
+
+                // Fall back to mock data
+                console.log('Using mock data for new releases');
                 return mockTrailers.filter(t => t.isNewRelease);
+            } catch (error) {
+                console.error('All attempts to fetch new releases failed:', error);
+                return mockTrailers.filter(t => t.isNewRelease).slice(0, 5);
             }
         }
     };

@@ -1,82 +1,90 @@
 # Trailer Park Anime
 
-A modern React application that showcases anime trailers and information powered by the MyAnimeList API.
-
-![Trailer Park Anime](public/images/trailer-park-logo.svg)
+Your premier destination for anime trailers and information.
 
 ## Features
 
-- Browse trending and new anime releases
-- Filter anime by genre categories
-- View detailed information about each anime
-- Responsive design for mobile and desktop
-- Modern UI with sleek animations and hover effects
-- Custom branding with unique color scheme
+- Browse trending anime
+- Discover new releases
+- Search for your favorite anime
+- View detailed information and trailers
+- Filter anime by genre, year, and more
 
-## Tech Stack
+## API Integrations
 
-- React 19
-- TypeScript
-- Tailwind CSS
-- React Router DOM
-- MyAnimeList API
+This application integrates with multiple anime APIs to ensure reliable data availability:
 
-## API Configuration
+### 1. MyAnimeList API (Primary)
 
-### Setting up MyAnimeList API Access
+The application primarily uses the MyAnimeList API to fetch anime data. You'll need to register for a client ID at [MyAnimeList API](https://myanimelist.net/apiconfig).
 
-1. Register for a MyAnimeList account at [MyAnimeList.net](https://myanimelist.net)
-2. Visit the [API page](https://myanimelist.net/apiconfig) to register your application
-3. Create a new client ID by filling out the form
-4. Once approved, you'll receive a Client ID
-5. Update the `MAL_CLIENT_ID` constant in `src/services/api.ts` with your Client ID
+### 2. AniList API (Secondary)
 
-```javascript
-const MAL_CLIENT_ID = 'YOUR_MAL_CLIENT_ID'; // Replace with your client ID from MyAnimeList
-```
+If the MyAnimeList API is unavailable or returns an error, the application fallbacks to the AniList GraphQL API. No authentication is required for basic queries.
 
-## Getting Started
+### 3. Kitsu API (Tertiary)
 
-In the project directory, you can run:
+As a third backup option, the application can use the Kitsu API. For authenticated requests, you can register for API credentials at [Kitsu API](https://kitsu.docs.apiary.io/).
 
-### `npm install`
+## Setup
 
-Installs all the required dependencies for the project.
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/trailer-park-anime.git
+   cd trailer-park-anime
+   ```
 
-### `npm start`
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+3. Configure the API keys:
+   - Copy `.env.example` to `.env`
+   - Add your MyAnimeList API client ID
+   - (Optional) Add your Kitsu API client ID and secret for enhanced fallback capabilities
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+4. Start the development server:
+   ```bash
+   npm start
+   ```
 
-### `npm test`
+## API Fallback System
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+The application implements a sophisticated fallback system:
 
-### `npm run build`
+1. First attempts to fetch data from MyAnimeList API
+2. If that fails, falls back to AniList API
+3. If both fail, falls back to Kitsu API
+4. If all APIs fail, uses mock data as a last resort
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+This ensures the application continues to function even if one or more APIs are unavailable.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Environment Variables
 
-## Project Structure
+| Variable | Description |
+|----------|-------------|
+| `REACT_APP_MAL_CLIENT_ID` | Your MyAnimeList API client ID |
+| `REACT_APP_KITSU_CLIENT_ID` | Your Kitsu API client ID (optional) |
+| `REACT_APP_KITSU_CLIENT_SECRET` | Your Kitsu API client secret (optional) |
+| `REACT_APP_API_FALLBACK_ORDER` | Comma-separated list of APIs in fallback order (default: `mal,anilist,kitsu`) |
 
-- `public/` - Static assets including images and favicon
-- `src/` - Application source code
-  - `assets/` - SVG and other asset files
-  - `services/` - API service for MyAnimeList integration
-  - `App.tsx` - Main application component
-  - `App.css` - Custom styling
+## Technical Implementation
 
-## Credits
+### API Service Architecture
 
-This project uses the [MyAnimeList API](https://myanimelist.net/apiconfig) to fetch anime data.
+The application uses Axios for API requests with a layered architecture:
+
+1. **API Services**: Separate service files for each API (`api.ts`, `anilistApi.ts`, `kitsuApi.ts`)
+2. **Centralized Configuration**: API keys and endpoints configured in `.env`
+3. **Error Handling**: Comprehensive error handling with detailed logging
+4. **Fallback Mechanism**: Automated fallback to alternative APIs when primary APIs fail
+5. **Data Normalization**: Each API's response is normalized to a common format for consistent usage throughout the app
+
+### Type Safety
+
+The application uses TypeScript to ensure type safety across all API integrations.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT

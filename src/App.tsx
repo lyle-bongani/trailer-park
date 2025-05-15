@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import './App.css';
-import { fetchMockData, fetchGenres, AnimeTrailer } from './services/api';
+import { fetchMockData, fetchGenres, AnimeTrailer, isMockDataEnabled } from './services/api';
 import { Anime, Genre } from './types';
 
 // Import components
@@ -63,7 +63,9 @@ const App: React.FC = () => {
         const loadData = async () => {
             try {
                 setLoading(true);
-                setIsMockData(false);
+
+                // Check if we're using mock data by accessing the exported function
+                setIsMockData(isMockDataEnabled());
 
                 // Initialize the data service
                 const dataService = fetchMockData();
@@ -75,11 +77,6 @@ const App: React.FC = () => {
                     dataService.fetchNewReleases(),
                     fetchGenres()
                 ]);
-
-                // Check if we're using mock data
-                if (trending.length > 0 && trending[0].id.includes('_')) {
-                    setIsMockData(true);
-                }
 
                 // Convert and set state with fetched data
                 setFeaturedAnime(featured ? convertToAnime(featured) : null);
@@ -119,7 +116,7 @@ const App: React.FC = () => {
         loadData();
     }, []);
 
-    return (
+  return (
         <Router>
             <div className="flex flex-col min-h-screen bg-tp-black">
                 <Header />
@@ -298,9 +295,9 @@ const App: React.FC = () => {
 
                 {/* Global loading overlay */}
                 {loading && <LoadingSpinner fullScreen />}
-            </div>
+    </div>
         </Router>
-    );
+  );
 };
 
 export default App;

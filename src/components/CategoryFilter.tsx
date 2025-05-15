@@ -29,14 +29,16 @@ const CategoryFilter: React.FC<CategoryFilterProps> = ({
         checkScroll();
         window.addEventListener('resize', checkScroll);
 
-        if (scrollContainerRef.current) {
-            scrollContainerRef.current.addEventListener('scroll', checkScroll);
+        // Store ref value in a variable to use in cleanup
+        const currentRef = scrollContainerRef.current;
+        if (currentRef) {
+            currentRef.addEventListener('scroll', checkScroll);
         }
 
         return () => {
             window.removeEventListener('resize', checkScroll);
-            if (scrollContainerRef.current) {
-                scrollContainerRef.current.removeEventListener('scroll', checkScroll);
+            if (currentRef) {
+                currentRef.removeEventListener('scroll', checkScroll);
             }
         };
     }, [genres]);
@@ -81,8 +83,8 @@ const CategoryFilter: React.FC<CategoryFilterProps> = ({
                 <button
                     onClick={() => onSelectGenre(null)}
                     className={`shrink-0 px-4 py-2 rounded-full ${selectedGenreId === null
-                            ? 'bg-tp-green text-tp-black font-semibold'
-                            : 'bg-tp-surface text-tp-text-light hover:bg-tp-surface-light'
+                        ? 'bg-tp-green text-tp-black font-semibold'
+                        : 'bg-tp-surface text-tp-text-light hover:bg-tp-surface-light'
                         } transition-colors`}
                 >
                     All
@@ -94,8 +96,8 @@ const CategoryFilter: React.FC<CategoryFilterProps> = ({
                         key={genre.id}
                         onClick={() => onSelectGenre(genre.id)}
                         className={`shrink-0 px-4 py-2 rounded-full ${selectedGenreId === genre.id
-                                ? 'bg-tp-green text-tp-black font-semibold'
-                                : 'bg-tp-surface text-tp-text-light hover:bg-tp-surface-light'
+                            ? 'bg-tp-green text-tp-black font-semibold'
+                            : 'bg-tp-surface text-tp-text-light hover:bg-tp-surface-light'
                             } transition-colors`}
                     >
                         {genre.name}

@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 const Header: React.FC = () => {
     const [isScrolled, setIsScrolled] = useState(false);
     const [isSearchOpen, setIsSearchOpen] = useState(false);
+    const [isDesktopSearchOpen, setIsDesktopSearchOpen] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const location = useLocation();
@@ -22,11 +23,36 @@ const Header: React.FC = () => {
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
-    // Close mobile menu when changing routes
+    // Close mobile menu and search when changing routes
     useEffect(() => {
         setIsMobileMenuOpen(false);
         setIsSearchOpen(false);
+        setIsDesktopSearchOpen(false);
     }, [location]);
+
+    // Add keyboard shortcut for search
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Open search when slash key is pressed, but not when typing in input fields
+            if (e.key === '/' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+                e.preventDefault();
+                if (window.innerWidth >= 768) {
+                    setIsDesktopSearchOpen(true);
+                } else {
+                    setIsSearchOpen(true);
+                }
+            }
+
+            // Close search when Escape key is pressed
+            if (e.key === 'Escape') {
+                setIsDesktopSearchOpen(false);
+                setIsSearchOpen(false);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
 
     const navLinks = [
         { name: 'Home', path: '/' },
@@ -50,6 +76,7 @@ const Header: React.FC = () => {
         if (searchQuery.trim()) {
             navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
             setIsSearchOpen(false);
+            setIsDesktopSearchOpen(false);
             setSearchQuery("");
         }
     };
@@ -75,10 +102,10 @@ const Header: React.FC = () => {
                             <Link
                                 to={link.path}
                                 className={`text-sm transition-colors ${isActive(link.path)
-                                        ? 'text-tp-green font-semibold'
-                                        : link.highlight
-                                            ? 'text-tp-green-light hover:text-tp-green font-semibold'
-                                            : 'text-tp-text-light hover:text-white'
+                                    ? 'text-tp-green font-semibold'
+                                    : link.highlight
+                                        ? 'text-tp-green-light hover:text-tp-green font-semibold'
+                                        : 'text-tp-text-light hover:text-white'
                                     }`}
                             >
                                 {link.name}
@@ -101,47 +128,97 @@ const Header: React.FC = () => {
 
                 {/* Right side buttons */}
                 <div className="flex items-center space-x-4">
-                    {/* Search toggle or link */}
-                    <Link
-                        to="/search"
-                        className="hidden md:block text-tp-text-light hover:text-tp-green transition-colors"
-                    >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="h-6 w-6"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                            />
-                        </svg>
-                    </Link>
+                    {/* Desktop Search */}
+                    <div className="hidden md:flex items-center">
+                        {isDesktopSearchOpen ? (
+                            <div className="relative">
+                                <form onSubmit={handleSearchSubmit} className="relative">
+                                    <input
+                                        type="text"
+                                        placeholder="Search for anime..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="w-64 bg-tp-dark-gray text-white py-2 px-4 pr-10 rounded-md focus:outline-none focus:ring-2 focus:ring-tp-green"
+                                        autoFocus
+                                    />
+                                    <button
+                                        type="submit"
+                                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-tp-green"
+                                    >
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            className="h-5 w-5"
+                                            viewBox="0 0 20 20"
+                                            fill="currentColor"
+                                        >
+                                            <path
+                                                fillRule="evenodd"
+                                                d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
+                                                clipRule="evenodd"
+                                            />
+                                        </svg>
+                                    </button>
+                                </form>
+                                <div className="absolute right-0 -bottom-6 text-xs text-tp-text-light whitespace-nowrap">
+                                    Press <span className="text-tp-green font-medium">Esc</span> to close
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="relative group">
+                                <button
+                                    onClick={() => setIsDesktopSearchOpen(true)}
+                                    className="text-tp-text-light hover:text-tp-green transition-colors"
+                                    aria-label="Open search"
+                                >
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        className="h-6 w-6"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                        />
+                                    </svg>
+                                </button>
+                                <div className="absolute right-0 -bottom-10 hidden group-hover:block bg-tp-dark-gray text-white text-xs py-1 px-2 rounded whitespace-nowrap">
+                                    Search <span className="text-tp-green">(Press /)</span>
+                                    <div className="absolute -top-1 right-4 transform w-2 h-2 bg-tp-dark-gray rotate-45"></div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
                     {/* Mobile search button */}
-                    <button
-                        onClick={() => setIsSearchOpen(!isSearchOpen)}
-                        className="md:hidden text-tp-text-light hover:text-tp-green transition-colors"
-                    >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="h-6 w-6"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
+                    <div className="relative group md:hidden">
+                        <button
+                            onClick={() => setIsSearchOpen(!isSearchOpen)}
+                            className="text-tp-text-light hover:text-tp-green transition-colors"
                         >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                            />
-                        </svg>
-                    </button>
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-6 w-6"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                />
+                            </svg>
+                        </button>
+                        <div className="absolute right-0 -bottom-10 hidden group-hover:block bg-tp-dark-gray text-white text-xs py-1 px-2 rounded whitespace-nowrap">
+                            Search <span className="text-tp-green">(Press /)</span>
+                            <div className="absolute -top-1 right-4 transform w-2 h-2 bg-tp-dark-gray rotate-45"></div>
+                        </div>
+                    </div>
 
                     {/* Profile */}
                     <Link to="/profile" className="hidden md:block">
@@ -184,7 +261,7 @@ const Header: React.FC = () => {
 
             {/* Mobile Search bar */}
             <div
-                className={`md:hidden transition-all duration-300 overflow-hidden ${isSearchOpen ? 'h-16' : 'h-0'
+                className={`md:hidden transition-all duration-300 overflow-hidden ${isSearchOpen ? 'h-20' : 'h-0'
                     }`}
             >
                 <div className="px-6 md:px-16 lg:px-24 py-3">
@@ -214,6 +291,9 @@ const Header: React.FC = () => {
                                 />
                             </svg>
                         </button>
+                        <div className="text-xs text-tp-text-light mt-1 pl-1">
+                            Press <span className="text-tp-green font-medium">Esc</span> to close, <span className="text-tp-green font-medium">/</span> to open search anytime
+                        </div>
                     </form>
                 </div>
             </div>
@@ -229,10 +309,10 @@ const Header: React.FC = () => {
                             key={link.path}
                             to={link.path}
                             className={`transition-colors ${isActive(link.path)
-                                    ? 'text-tp-green font-semibold'
-                                    : link.highlight
-                                        ? 'text-tp-green-light hover:text-tp-green font-semibold flex items-center'
-                                        : 'text-tp-text-light hover:text-white'
+                                ? 'text-tp-green font-semibold'
+                                : link.highlight
+                                    ? 'text-tp-green-light hover:text-tp-green font-semibold flex items-center'
+                                    : 'text-tp-text-light hover:text-white'
                                 }`}
                         >
                             {link.name}
@@ -251,9 +331,6 @@ const Header: React.FC = () => {
                     ))}
                     <Link to="/search" className="text-tp-text-light hover:text-white transition-colors">
                         Search
-                    </Link>
-                    <Link to="/profile" className="text-tp-text-light hover:text-white transition-colors">
-                        Profile
                     </Link>
                 </nav>
             </div>

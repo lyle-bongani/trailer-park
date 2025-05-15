@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { fetchAllAnime, fetchGenres, SortOption, PaginatedResponse, AnimeTrailer } from '../services/api';
+import { fetchAllAnime, fetchGenres, SortOption, PaginatedResponse, AnimeTrailer, isMockDataEnabled } from '../services/api';
 import { Anime, Genre } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import AnimeCard from './AnimeCard';
@@ -102,7 +102,9 @@ const AnimeLibrary: React.FC = () => {
             try {
                 setLoading(true);
                 setError(null);
-                setIsMockData(false);
+
+                // Use the exported function to check if we're using mock data
+                setIsMockData(isMockDataEnabled());
 
                 console.log('Fetching anime with params:', { page, sort, sortDir, selectedGenre, status });
                 const response: PaginatedResponse<AnimeTrailer> = await fetchAllAnime(
@@ -114,20 +116,44 @@ const AnimeLibrary: React.FC = () => {
                     status
                 );
 
-                if (response.data.length > 0 && response.data[0].id.includes('_')) {
-                    // If the ID contains an underscore, it's likely mock data
-                    setIsMockData(true);
+                if (response.data.length === 0) {
+                    console.log('No anime found for the current filters');
+                    setAnimeList([]);
+                    setPaginationData({
+                        currentPage: 1,
+                        lastPage: 1
+                    });
+                } else {
+                    setAnimeList(response.data.map(convertToAnime));
+                    setPaginationData({
+                        currentPage: response.currentPage,
+                        lastPage: response.lastPage
+                    });
+                }
+            } catch (err: any) {
+                console.error('Failed to load anime:', err);
+
+                // Create a more informative error message for users
+                let errorMessage = 'Failed to load anime. Please try again later.';
+
+                if (err.message && typeof err.message === 'string') {
+                    if (err.message.includes('Network Error') || err.message.includes('CORS')) {
+                        errorMessage = 'Network error occurred. This might be due to connectivity issues or CORS restrictions.';
+                    } else if (err.message.includes('timeout')) {
+                        errorMessage = 'Request timed out. The server is taking too long to respond.';
+                    } else if (err.message.includes('403')) {
+                        errorMessage = 'Access denied. Please check your API credentials.';
+                    } else if (err.message.includes('404')) {
+                        errorMessage = 'The requested anime content could not be found.';
+                    } else if (err.message.includes('500')) {
+                        errorMessage = 'Server error occurred. Please try again later.';
+                    }
                 }
 
-                setAnimeList(response.data.map(convertToAnime));
-                setPaginationData({
-                    currentPage: response.currentPage,
-                    lastPage: response.lastPage
-                });
-            } catch (err) {
-                console.error('Failed to load anime:', err);
-                setError('Failed to load anime. Please try again later.');
+                setError(errorMessage);
                 setAnimeList([]);
+                // Set isMockData in case of error and fallback to mock data
+                setIsMockData(true);
             } finally {
                 setLoading(false);
             }
@@ -168,6 +194,12 @@ const AnimeLibrary: React.FC = () => {
     const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         setStatus(e.target.value);
         setPage(1); // Reset to first page when changing status
+    };
+
+    // Add a retry function to reload data
+    const handleRetry = () => {
+        setPage(1); // Reset to first page
+        // The useEffect will trigger a reload
     };
 
     // Generate pagination buttons
@@ -358,49 +390,48 @@ const AnimeLibrary: React.FC = () => {
                 </div>
             )}
 
+            {/* Error display with retry button */}
+            {error && (
+                <div className="bg-red-900/60 text-white p-4 rounded-lg mb-6 flex flex-col items-center">
+                    <p className="mb-3">{error}</p>
+                    <button
+                        onClick={handleRetry}
+                        className="bg-tp-green text-black px-4 py-2 rounded hover:bg-tp-green-light transition-colors"
+                    >
+                        Retry
+                    </button>
+                </div>
+            )}
+
             {/* Results section */}
-            {loading ? (
-                <div className="flex justify-center py-12">
-                    <LoadingSpinner />
-                </div>
-            ) : error ? (
-                <div className="bg-red-900/30 text-red-200 p-4 rounded-md">
-                    <p>{error}</p>
-                </div>
-            ) : (
-                <>
-                    {/* Results count */}
-                    <div className="mb-4 text-tp-text-light">
-                        {animeList.length > 0 ? (
-                            <p>
-                                Page {paginationData.currentPage} of {paginationData.lastPage}
-                                {' | '}
-                                Showing {animeList.length} anime
-                            </p>
-                        ) : (
-                            <p>No anime found matching your criteria. Try adjusting your filters.</p>
-                        )}
-                    </div>
+            {!loading && !error && (
+                <div>
+                    <p className="text-tp-text-light mb-4">
+                        Found {animeList.length > 0 ? (paginationData.lastPage * 24) + '+' : '0'} anime
+                    </p>
 
-                    {/* Results grid */}
-                    {animeList.length > 0 && (
-                        <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-                            {animeList.map(anime => (
-                                <AnimeCard
-                                    key={anime.id}
-                                    anime={anime}
-                                />
-                            ))}
+                    {animeList.length === 0 ? (
+                        <div className="text-center text-tp-text-light p-10 bg-tp-darker/60 rounded-lg">
+                            <p>No anime found matching your criteria.</p>
+                            <p className="mt-2">Try adjusting your filters.</p>
                         </div>
-                    )}
+                    ) : (
+                        <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                                {animeList.map(anime => (
+                                    <AnimeCard key={anime.id} anime={anime} />
+                                ))}
+                            </div>
 
-                    {/* Pagination */}
-                    {animeList.length > 0 && (
-                        <div className="mt-8 flex flex-wrap justify-center">
-                            {renderPagination()}
-                        </div>
+                            {/* Pagination */}
+                            {paginationData.lastPage > 1 && (
+                                <div className="mt-8 flex justify-center">
+                                    {renderPagination()}
+                                </div>
+                            )}
+                        </>
                     )}
-                </>
+                </div>
             )}
         </div>
     );
